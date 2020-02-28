@@ -72,27 +72,87 @@ class MSLPresentationToImageConverter_WflCreateObjects extends WflCreateObjects_
 					// Or create images anyway if the flag is false -- and we'll create the relation after if the image is in a dossier
 						
 					if ( ( MSLP2IC_ONLY_EXEC_IF_CREATED_IN_DOSSIER && $dossierId != 0 ) || !MSLP2IC_ONLY_EXEC_IF_CREATED_IN_DOSSIER ) {
+					
+						$presentationId           = $object->MetaData->BasicMetaData->ID;
+						$presentationName         = $object->MetaData->BasicMetaData->Name;
+						$presentationBrandId      = $object->MetaData->BasicMetaData->Publication->Id;
+						$presentationBrandName    = $object->MetaData->BasicMetaData->Publication->Name;
+						$presentationCategoryId   = $object->MetaData->BasicMetaData->Category->Id;
+						$presentationCategoryName = $object->MetaData->BasicMetaData->Category->Name;
+						$presentationIssueId      = $object->MetaData->BasicMetaData->Category->Name;
+						$presentationObject       = BizObject::getObject( $presentationId, $user, false, 'native');
+						$presentationMeta         = BizObject::getObject( $presentationId, $user, false, 'native');
+						$presentationExt          = MimeTypeHandler::mimeType2FileExt( $presentationObject->MetaData->ContentMetaData->Format, $presentationObject->MetaData->BasicMetaData->Type );
+						$presentationData         = file_get_contents( $presentationObject->Files[0]->FilePath );
 
-						$presentationId = $object->MetaData->BasicMetaData->ID;
+						// Create the individual PNG files from each slide
 
-						$jobData   = array();
-						$jobData[] = array( 'presentationid' => $presentationId, 'dossierid' => $dossierId );
+						$presentationImages = self::createImagesFromPresentation( $presentationId, $presentationExt, $presentationData );
 
-						try {
-							$job = new ServerJob();
-							$job->JobType = 'MSLPresentationToImageConverter';
-							$job->Context = 'MSLPresentationToImageConverter';
-							$job->JobData = $jobData;
+						// Create new image objects for each of the PNGs
 
-							if( !is_null( $job->JobData ) ) {
-								$job->JobData = serialize( $job->JobData );
+						$tmpDir = TEMPDIRECTORY . '/' . $presentationId . '/';
+
+						$i = 0;
+
+						foreach ($presentationImages as $presentationImage ) {
+
+							$i++;
+
+							// Get the image data
+
+							$imageData = file_get_contents( $tmpDir . $presentationImage );
+							$imageMeta = clone $presentationMeta;
+
+							$attachment     = new Attachment( 'native', 'image/png' );
+							$transferServer = new BizTransferServer();
+							$transferServer->writeContentToFileTransferServer( $imageData, $attachment );
+				
+							$files   = array();
+							$files[] = $attachment;
+							
+							$imageObject                                             = new Object();
+					        $imageObject->MetaData                                   = new MetaData();
+					        $imageObject->MetaData->BasicMetaData                    = new BasicMetaData();
+					        $imageObject->MetaData->BasicMetaData->Name              = $presentationName . '_SLIDE_' . $i . '_OF_' . count( $presentationImages );
+					        $imageObject->MetaData->BasicMetaData->Type              = 'Image';
+					        $imageObject->MetaData->ContentMetaData                  = new ContentMetaData();
+					        $imageObject->MetaData->ContentMetaData->Format          = self::isKnownMimeType($file, '');
+					        $imageObject->MetaData->ContentMetaData->FileSize        = FileSize($file);
+					        $imageObject->MetaData->BasicMetaData->Publication       = new Publication();
+					        $imageObject->MetaData->BasicMetaData->Publication->Id   = $presentationBrandId;
+					        $imageObject->MetaData->BasicMetaData->Publication->Name = $presentationBrandName;
+					        $imageObject->MetaData->BasicMetaData->Category          = new Category();
+					        $imageObject->MetaData->BasicMetaData->Category->Id      = $presentationCategoryId;
+					        $imageObject->MetaData->BasicMetaData->Category->Name    = $presentationCategoryName;
+					        $imageObject->MetaData->WorkflowMetaData                 = new WorkflowMetaData();
+					        $imageObject->MetaData->WorkflowMetaData->State          = new State();
+					        $imageObject->MetaData->WorkflowMetaData->State->Id      = 96;
+					        $imageObject->MetaData->WorkflowMetaData->State->Name    = 'Image Draft';
+					        $imageObject->Files                                      = array( $attachment );
+
+					        // Create the new object
+
+							$service      = new WflCreateObjectsService();
+							$req          = new WflCreateObjectsRequest();
+							$req->Ticket  = $ticket;
+							$req->Lock    = false;
+							$req->Objects = array( $imageObject );
+							$resp         = $service->execute( $req );
+							
+							foreach ( $resp->Objects as $newObject ) {
+								$imageId = $newObject->MetaData->BasicMetaData->ID;
 							}
 
-							require_once BASEDIR.'/server/bizclasses/BizServerJob.class.php';
-							$bizServerJob = new BizServerJob();
-							$bizServerJob->createJob( $job );
+							if ( $dossierId != 0 ) {
+						
+								// Add the new web image to the dossier if the original presentation is contained
+					
+								$newRelation = array( new Relation( $dossierId, $imageId, 'Contained' ) );
+					
+								BizRelation::createObjectRelations( $newRelation, $user, null, true );	
+							}
 						}
-						catch ( BizException $e ) {}
 					}
 				}
 				catch (Exception $e) {

@@ -228,7 +228,7 @@ class MSLPresentationToImageConverter_EnterprisePlugin extends EnterprisePlugin
 			// 'Search_EnterpriseConnector',
 			// 'DbModel_EnterpriseConnector',
 			// 'CustomObjectMetaData_EnterpriseConnector',
-			// 'ServerJob_EnterpriseConnector',
+			 'ServerJob_EnterpriseConnector',
 			// 'Preview_EnterpriseConnector',
 			// 'IssueEvent_EnterpriseConnector',
 			// 'Spelling_EnterpriseConnector',
